@@ -5,8 +5,12 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
 from tkinter import *
+from tkinter import font
 from functools import partial
 import glob, os
+
+
+
 
 class GUI:
     def __init__(self):
@@ -17,6 +21,7 @@ class GUI:
         
         self.Home = self.HomePage(r, self.VManager, self)
         self.AddGame = self.AddGamePage(r, self.VManager, self)
+        self.UpdateVersion = self.UpdateVersionPage(r, self.VManager, self)
         
         
         self.SetShownPage(self.Home)
@@ -30,12 +35,18 @@ class GUI:
                 self.TitleColor = "black"
             else:
                 self.TitleColor = "red"
-            self.GameFrame = tk.Frame(root)
+            self.BGCOLOR = "grey"
+            self.DEFAULTF = font.nametofont("TkDefaultFont")
+            self.TITLEF = (self.DEFAULTF.actual(), 20, "bold") 
+            self.GameFrame = tk.Frame(root, bg=self.BGCOLOR, padx=20, pady=20)
             self.Manager = Manager
             self.Game = game
             self.column = column
             self.row = row
+
             self.Update()
+        def UpdateVersion(self):
+            self.Manager.GUI.UpdateVersion.Show(self.Game)
         def Remove(self):
             self.Manager.VManager.RemoveGame(self.Game, self.var.get())
             self.Manager.Show()
@@ -57,7 +68,7 @@ class GUI:
         def Update(self):
             for i in self.GameFrame.winfo_children():
                 i.destroy()
-            self.Title = tk.Label(self.GameFrame, text=self.Game.Name, foreground=self.TitleColor)
+            self.Title = tk.Label(self.GameFrame, text=self.Game.Name, foreground=self.TitleColor, bg=self.BGCOLOR, font=self.TITLEF)
             self.Title.grid(column=0, row=0)
             
             self.var = StringVar(self.GameFrame)
@@ -66,9 +77,7 @@ class GUI:
             
 
             
-            ButtonFrame = tk.Frame(self.GameFrame)
-            print(self.Game.Versions)
-            Dropdown = OptionMenu(ButtonFrame, self.var, *self.Game.Versions)
+            ButtonFrame = tk.Frame(self.GameFrame, bg=self.BGCOLOR, padx=20, pady=20)
             self.VersionDrop = ttk.Combobox(ButtonFrame, state="readonly", values=self.Game.Versions, textvariable=self.var)
             #Dropdown.grid(row=0)
             self.VersionDrop.grid(row=0)
@@ -76,15 +85,15 @@ class GUI:
             self.ChangeVersion["state"]="disabled"
             self.ChangeVersion.grid(column=1, row=0)
             
-            Delete = tk.Button(ButtonFrame, text="Delete", width=15, command=self.Remove)
-            Edit = tk.Button(ButtonFrame, text="Edit", width=15)
-            RemoveSymlink = tk.Button(ButtonFrame, text="RemoveSymlink", width=15, command=self.UnSymlink)
+            Delete = tk.Button(ButtonFrame, text="Delete", width=15, height=2, command=self.Remove, fg="red")
+            UpdateVersion = tk.Button(ButtonFrame, text="Update", width=15, command=self.UpdateVersion)
+            RemoveSymlink = tk.Button(ButtonFrame, text="RemoveSymlink", width=15, height=2, command=self.UnSymlink)
             if self.Game.Linked:
                 pass
             else:
                 RemoveSymlink["state"] = "disabled"
             ButtonFrame.grid()
-            Edit.grid(column=1, row=1)
+            UpdateVersion.grid(column=1, row=1)
             Delete.grid(column=0, row=1)
             RemoveSymlink.grid(column=0, row=2)
             
@@ -211,6 +220,53 @@ class GUI:
             self.Cancel()
         def Cancel(self):
             self.GUI.SetShownPage(self.GUI.Home)
+            
+            
+    class UpdateVersionPage:
+        def __init__(self, window, vManager, GUI):
+            self.GUI = GUI
+            self.window = window
+
+            self.VManager = vManager
+        def Show(self, Game):
+            self.Game = Game
+            for i in self.window.winfo_children():
+                i.destroy()
+            UpdateVersionFrame = tk.Frame(self.window)
+            UpdateVersionFrame.pack()
+            
+            NameLabel = tk.Label(UpdateVersionFrame, text="Version: ")
+            NameLabel.grid(row=0)
+            VersionLabel = tk.Label(UpdateVersionFrame, text="Current Version: ")
+            VersionLabel.grid(row=1)
+            
+            self.var = StringVar(UpdateVersionFrame)
+            self.var.set(Game.CurrentVersion)
+            
+            
+            
+            self.NameSelect = ttk.Combobox(UpdateVersionFrame, values=Game.Versions, textvariable=self.var)
+            self.NameSelect.grid(row=0, column=1)
+            
+            self.VersionEntry = tk.Entry(UpdateVersionFrame)
+            self.VersionEntry.grid(row=1, column=1)
+            
+            
+            DoneButton = tk.Button(UpdateVersionFrame, text="Done", width=25, command=self.Done)
+            CancelButton = tk.Button(UpdateVersionFrame, text="Cancel", width=25, command=self.Cancel)
+            
+            DoneButton.grid(column=1, row = 3)
+            CancelButton.grid(column=0, row = 3)
+        def Done(self):
+            CurrentVersion = self.var.get()
+            version = self.VersionEntry.get()
+            if version == "":
+                return
+            self.VManager.UpdateVersion(self.Game, CurrentVersion, version)
+            self.Cancel()
+            
+        def Cancel(self):
+            self.GUI.SetShownPage(self.GUI.Home)
 
         
 class VersionManager:
@@ -246,16 +302,16 @@ class VersionManager:
     def ChangeVersion(self, Game, Version):
         if Game.Exists:
             if Game.Linked:
-                self.RemoveSymlink(Game, Game.CurrentVersion)
-            rmtree(Game.Location)
+                self.RemoveSymlink(Game, Game.CurrentVersion, Copy=False)
             self.CreateSymlink(Game, Version)
-            Game.CurrentVersion = Version
-            Game.Linked = True
+
             self.SaveToFile(self.GamesPath, self.Games)
     def CreateSymlink(self, Game, Version):
         Destination = "%s\Games\%s - %s" % (os.path.dirname(__file__),Game.Name, Version)
+        Game.CurrentVersion = Version
+        Game.Linked = True
         os.symlink(Destination, Game.Location)
-    def RemoveSymlink(self, Game, CurrentVersion):
+    def RemoveSymlink(self, Game, CurrentVersion, Copy=True):
         if Game.Exists:
             try:
                 os.unlink(Game.Location)
@@ -264,15 +320,26 @@ class VersionManager:
             Game.Linked = False
             Game.CurrentVersion = ""
             CurrentLocation = "%s\Games\%s - %s" % (os.path.dirname(__file__),Game.Name, CurrentVersion)
-            def copy2_verbose(src, dst):
-                print('Copying {0}'.format(src))
-                copy2(src,dst)
-            try:
-                copytree(CurrentLocation, Game.Location, copy_function=copy2_verbose)
-            except:
-                print("Cant Copy")
+            if Copy:
+                def copy2_verbose(src, dst):
+                    print('Copying {0}'.format(src))
+                    copy2(src,dst)
+                try:
+                    copytree(CurrentLocation, Game.Location, copy_function=copy2_verbose)
+                except:
+                    print("Cant Copy")
             self.SaveToFile(self.GamesPath, self.Games)
-        
+    def UpdateVersion(self, Game, UpdateVersion, NewVersion):
+        if Game.Linked:         
+            CurrentLocation = "%s\Games\%s - %s" % (os.path.dirname(__file__),Game.Name, UpdateVersion)
+            NewLocation = "%s\Games\%s - %s" % (os.path.dirname(__file__),Game.Name, NewVersion)
+            os.rename(CurrentLocation, NewLocation)
+            self.RemoveSymlink(Game, Game.CurrentVersion, Copy=False)
+            self.CreateSymlink(Game, NewVersion)
+            i = Game.Versions.index(UpdateVersion)
+            Game.Versions[i] = NewVersion
+            Game.CurrentVersion = NewVersion
+            self.SaveToFile(self.GamesPath, self.Games)
         
     def AddGame(self, Name, Version, Location):
         if Location == "":
